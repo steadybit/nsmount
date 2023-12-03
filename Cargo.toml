@@ -1,0 +1,13 @@
+[package]
+name = "nsmount"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libc = { version = "0.2" }
+nix = { version = "0.27", features = ["fs", "sched"] }
+structopt = { version = "0.3", default-features = false }
+errno = "0.3.5"
+bitflags = "2.4.0"
