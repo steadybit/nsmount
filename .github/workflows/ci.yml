@@ -28,6 +28,9 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c #v1.15.2
 
+      - name: Integration tests
+        run: cargo test --test integration_tests
+
       - name: Build
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
