@@ -1,9 +1,18 @@
+#[cfg(not(target_os = "linux"))]
+fn main() {
+	eprintln!("nsmount is only supported on Linux");
+	std::process::exit(1);
+}
+
+#[cfg(target_os = "linux")]
 use std::{
 	os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd},
 	path::PathBuf,
 };
 
+#[cfg(target_os = "linux")]
 use libc::{self, c_ulong};
+#[cfg(target_os = "linux")]
 use nix::{
 	self,
 	errno::Errno,
@@ -12,8 +21,10 @@ use nix::{
 	Result,
 	sched::{CloneFlags, setns}, sys::stat::Mode,
 };
+#[cfg(target_os = "linux")]
 use structopt::StructOpt;
 
+#[cfg(target_os = "linux")]
 #[derive(StructOpt, Debug)]
 #[structopt(
 name = "nsmount",
@@ -33,53 +44,65 @@ struct Opt {
 	to_path: PathBuf,
 }
 
+#[cfg(target_os = "linux")]
 const NO_FD: Option<&'static OwnedFd> = None;
+#[cfg(target_os = "linux")]
 const NO_PATH: Option<&'static [u8]> = None;
 
+#[cfg(target_os = "linux")]
 fn main() {
 	let opts = Opt::from_args();
 
 	let fd_from_mntns = open_ns(opts.from_pid, "mnt");
 	let fd_to_mntns = open_ns(opts.to_pid, "mnt");
 
-	setns(fd_from_mntns, CloneFlags::empty()).expect("failed setns for from_mntns");
+	if let Err(e) = setns(fd_from_mntns, CloneFlags::empty()) {
+		fatal(format!("setns {}", opts.from_pid).as_str(), e);
+	}
 
-	let fd_from = open_tree(
+	let fd_from = match open_tree(
 		NO_FD,
 		Some(&opts.from_path),
 		OpenTreeFlag::OPEN_TREE_CLONE | OpenTreeFlag::OPEN_TREE_CLOEXEC,
-	)
-		.expect("failed open_tree");
+	) {
+		Ok(fd) => fd,
+		Err(e) => fatal(&opts.from_path.display().to_string(), e),
+	};
 
+	if let Err(e) = setns(fd_to_mntns, CloneFlags::empty()) {
+		fatal(format!("setns {}", opts.to_pid).as_str(), e);
+	}
 
-	setns(fd_to_mntns, CloneFlags::empty()).expect("failed setns for to_mntns");
-
-	move_mount(
+	if let Err(e) = move_mount(
 		Some(fd_from.as_fd()),
 		NO_PATH,
 		NO_FD,
 		Some(&opts.to_path),
 		MoveMountFlag::MOVE_MOUNT_F_EMPTY_PATH,
-	)
-		.expect("failed move_mount");
+	) {
+		fatal(&opts.to_path.display().to_string(), e);
+	}
 }
 
+#[cfg(target_os = "linux")]
+fn fatal(context: &str, err: Errno) -> ! {
+	eprintln!("nsmount: {}: {}", context, err.desc());
+	std::process::exit(1);
+}
+
+#[cfg(target_os = "linux")]
 fn open_ns(pid: u32, ns: &str) -> OwnedFd {
 	let path = PathBuf::from("/proc")
 		.join(pid.to_string())
 		.join("ns")
 		.join(ns.to_string());
-	fcntl::open(&path, fcntl::OFlag::O_RDONLY, Mode::empty())
-		.map(|r| unsafe { OwnedFd::from_raw_fd(r) })
-		.expect(
-			format!(
-				"failed open {}",
-				path.into_os_string().into_string().unwrap()
-			)
-				.as_str(),
-		)
+	match fcntl::open(&path, fcntl::OFlag::O_RDONLY, Mode::empty()) {
+		Ok(fd) => unsafe { OwnedFd::from_raw_fd(fd) },
+		Err(e) => fatal(&path.display().to_string(), e),
+	}
 }
 
+#[cfg(target_os = "linux")]
 ::bitflags::bitflags! {
     #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[repr(transparent)]
@@ -89,6 +112,7 @@ fn open_ns(pid: u32, ns: &str) -> OwnedFd {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn open_tree<Fd: AsFd, P1: ?Sized + NixPath>(
 	dfd: Option<Fd>,
 	pathname: Option<&P1>,
@@ -101,6 +125,7 @@ fn open_tree<Fd: AsFd, P1: ?Sized + NixPath>(
 	Errno::result(ret).map(|r| unsafe { OwnedFd::from_raw_fd(r) })
 }
 
+#[cfg(target_os = "linux")]
 ::bitflags::bitflags! {
     #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[repr(transparent)]
@@ -114,6 +139,7 @@ fn open_tree<Fd: AsFd, P1: ?Sized + NixPath>(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn move_mount<Fd1: AsFd, Fd2: AsFd, P1: ?Sized + NixPath, P2: ?Sized + NixPath>(
 	from_dfd: Option<Fd1>,
 	from_path: Option<&P1>,
@@ -137,6 +163,7 @@ fn move_mount<Fd1: AsFd, Fd2: AsFd, P1: ?Sized + NixPath, P2: ?Sized + NixPath>(
 	Errno::result(ret).map(drop)
 }
 
+#[cfg(target_os = "linux")]
 fn with_opt_nix_path<P, T, F>(p: Option<&P>, f: F) -> Result<T>
 	where
 		P: ?Sized + NixPath,
@@ -148,6 +175,7 @@ fn with_opt_nix_path<P, T, F>(p: Option<&P>, f: F) -> Result<T>
 	}
 }
 
+#[cfg(target_os = "linux")]
 fn at_fd<Fd: AsFd>(fd: Option<Fd>) -> libc::c_int {
 	match fd {
 		None => -libc::EBADF,
