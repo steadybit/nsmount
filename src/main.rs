@@ -42,26 +42,37 @@ fn main() {
 	let fd_from_mntns = open_ns(opts.from_pid, "mnt");
 	let fd_to_mntns = open_ns(opts.to_pid, "mnt");
 
-	setns(fd_from_mntns, CloneFlags::empty()).expect("failed setns for from_mntns");
+	if let Err(e) = setns(fd_from_mntns, CloneFlags::empty()) {
+		fatal(format!("setns %d", opts.from_pid), e);
+	}
 
-	let fd_from = open_tree(
+	let fd_from = match open_tree(
 		NO_FD,
 		Some(&opts.from_path),
 		OpenTreeFlag::OPEN_TREE_CLONE | OpenTreeFlag::OPEN_TREE_CLOEXEC,
-	)
-		.expect("failed open_tree");
+	) {
+		Ok(fd) => fd,
+		Err(e) => fatal(&opts.from_path.display().to_string(), e),
+	};
 
+	if let Err(e) = setns(fd_to_mntns, CloneFlags::empty()) {
+		fatal(format!("setns %d", opts.to_pid), e);
+	}
 
-	setns(fd_to_mntns, CloneFlags::empty()).expect("failed setns for to_mntns");
-
-	move_mount(
+	if let Err(e) = move_mount(
 		Some(fd_from.as_fd()),
 		NO_PATH,
 		NO_FD,
 		Some(&opts.to_path),
 		MoveMountFlag::MOVE_MOUNT_F_EMPTY_PATH,
-	)
-		.expect("failed move_mount");
+	) {
+		fatal(&opts.to_path.display().to_string(), e);
+	}
+}
+
+fn fatal(context: &str, err: Errno) -> ! {
+	eprintln!("nsmount: {}: {}", context, err.desc());
+	std::process::exit(1);
 }
 
 fn open_ns(pid: u32, ns: &str) -> OwnedFd {
@@ -69,15 +80,10 @@ fn open_ns(pid: u32, ns: &str) -> OwnedFd {
 		.join(pid.to_string())
 		.join("ns")
 		.join(ns.to_string());
-	fcntl::open(&path, fcntl::OFlag::O_RDONLY, Mode::empty())
-		.map(|r| unsafe { OwnedFd::from_raw_fd(r) })
-		.expect(
-			format!(
-				"failed open {}",
-				path.into_os_string().into_string().unwrap()
-			)
-				.as_str(),
-		)
+	match fcntl::open(&path, fcntl::OFlag::O_RDONLY, Mode::empty()) {
+		Ok(fd) => unsafe { OwnedFd::from_raw_fd(fd) },
+		Err(e) => fatal(&path.display().to_string(), e),
+	}
 }
 
 ::bitflags::bitflags! {
