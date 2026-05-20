@@ -24,6 +24,22 @@ use nix::{
 #[cfg(target_os = "linux")]
 use structopt::StructOpt;
 
+// gettid(3) only got a libc wrapper in glibc 2.30. The libc crate
+// declares `extern "C" { fn gettid(); }`, and a reference to it is
+// pulled in transitively by the Rust standard library, which would
+// push nsmount's minimum required glibc to 2.30 and exclude RHEL 8
+// / Debian 10 (both shipping glibc 2.28).
+//
+// We define a local, exported `gettid` that issues the raw syscall.
+// The static linker resolves every reference to this definition, so
+// no GLIBC_2.30 versioned import is emitted into the binary.
+// scripts/check-glibc.sh guards against regressions in CI.
+#[cfg(target_os = "linux")]
+#[no_mangle]
+pub extern "C" fn gettid() -> libc::pid_t {
+	unsafe { libc::syscall(libc::SYS_gettid) as libc::pid_t }
+}
+
 #[cfg(target_os = "linux")]
 #[derive(StructOpt, Debug)]
 #[structopt(
