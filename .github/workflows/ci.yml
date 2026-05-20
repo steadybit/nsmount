@@ -36,6 +36,12 @@ jobs:
           cargo install cross --git https://github.com/cross-rs/cross
           make build
 
+      - name: Verify GLIBC requirement (<= 2.28 for RHEL 8 support)
+        run: |
+          ./scripts/check-glibc.sh 2.28 \
+            target/x86_64-unknown-linux-gnu/release/nsmount \
+            target/aarch64-unknown-linux-gnu/release/nsmount
+
       - if: startsWith(github.ref, 'refs/tags/')
         run: |
           cp ./target/x86_64-unknown-linux-gnu/release/nsmount ./target/nsmount.amd64
